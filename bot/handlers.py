@@ -12,8 +12,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(user)
     await update.message.reply_text(
         f"👋 Hello, {user.first_name}!\n\n"
-        "Send me any message and the support team will get back to you shortly. "
-        "We read every message! 💬"
+        "Send me any message and the support team will get back to you shortly. 💬"
     )
 
 
@@ -25,7 +24,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/broadcast — Reply to a message with this to broadcast\n"
             "/ban `<user_id>` — Ban a user\n"
             "/unban `<user_id>` — Unban a user\n\n"
-            "💬 *Reply* to any forwarded message to respond to that user."
+            "💬 Just *reply* to any forwarded message to respond to that user."
         )
     else:
         text = (
@@ -40,22 +39,25 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     msg = update.message
 
+    # --- OWNER SIDE: reply to a user ---
     if user.id == OWNER_ID:
         if msg.reply_to_message and msg.reply_to_message.forward_origin:
             try:
                 origin = msg.reply_to_message.forward_origin
                 target_user_id = origin.sender_user.id
-                await context.bot.send_message(
+                # Silently copy the message as-is — no "Reply from Support" prefix
+                await context.bot.copy_message(
                     chat_id=target_user_id,
-                    text=f"💬 *Reply from Support:*\n{msg.text}",
-                    parse_mode="Markdown"
+                    from_chat_id=msg.chat_id,
+                    message_id=msg.message_id
                 )
-                save_message(target_user_id, msg.text, direction="outgoing")
-                await msg.reply_text("✅ Reply sent!")
+                save_message(target_user_id, msg.text or "[media]", direction="outgoing")
+                # No "Reply sent" confirmation — silent
             except Exception as e:
-                await msg.reply_text(f"❌ Could not send reply: {e}")
+                await msg.reply_text(f"❌ Failed: {e}")
         return
 
+    # --- USER SIDE: sending a message ---
     save_user(user)
 
     if is_banned(user.id):
@@ -64,26 +66,14 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     save_message(user.id, msg.text or "[media]", direction="incoming")
 
-    username_tag = f"@{user.username}" if user.username else "no username"
-    caption = (
-        f"📩 *New Message*\n"
-        f"👤 [{user.first_name}](tg://user?id={user.id}) ({username_tag})\n"
-        f"🆔 `{user.id}`\n\n"
-        f"💬 {msg.text or '[media/sticker]'}"
-    )
-
+    # Forward the message cleanly — no extra caption, just the message
     await context.bot.forward_message(
         chat_id=OWNER_ID,
         from_chat_id=msg.chat_id,
         message_id=msg.message_id
     )
-    await context.bot.send_message(
-        chat_id=OWNER_ID,
-        text=caption,
-        parse_mode="Markdown"
-    )
 
-    await msg.reply_text("✅ Your message has been received! We'll reply soon.")
+    # No "message received" confirmation — silent, feels like DM
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
