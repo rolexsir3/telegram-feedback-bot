@@ -12,7 +12,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(user)
     await update.message.reply_text(
         f"👋 Hello, {user.first_name}!\n\n"
-        "Send me any message and the support team will get back to you shortly. 💬"
+        "Send any message here and admin will get back to you shortly. 💬"
     )
 
 
