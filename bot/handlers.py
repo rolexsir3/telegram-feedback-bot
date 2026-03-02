@@ -3,19 +3,16 @@ from telegram.ext import ContextTypes
 from config import OWNER_ID
 from bot.database import (
     save_user, save_message, get_all_users,
-    get_stats, ban_user, unban_user, is_banned,
-    save_message_map, get_user_from_message
+    get_stats, ban_user, unban_user, is_banned
 )
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user)
     await update.message.reply_text(
         f"👋 Hello, {user.first_name}!\n\n"
-        "Send me any message and the support team will get back to you shortly. 💬"
+        "Send any message here and admin will get back to you shortly. 💬"
     )
-
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == OWNER_ID:
@@ -25,7 +22,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/broadcast — Reply to a message with this to broadcast\n"
             "/ban `<user_id>` — Ban a user\n"
             "/unban `<user_id>` — Unban a user\n\n"
-            "💬 Just *reply* to any message to respond to that user."
+            "💬 Just *reply* to any forwarded message to respond to that user."
         )
     else:
         text = (
@@ -35,26 +32,26 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     await update.message.reply_text(text, parse_mode="Markdown")
 
-
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     msg = update.message
 
     # --- OWNER SIDE: reply to a user ---
     if user.id == OWNER_ID:
-        if msg.reply_to_message:
-            # Look up user_id from our message map
-            target_user_id = get_user_from_message(msg.reply_to_message.message_id)
-            if target_user_id:
-                try:
-                    await context.bot.copy_message(
-                        chat_id=target_user_id,
-                        from_chat_id=msg.chat_id,
-                        message_id=msg.message_id
-                    )
-                    save_message(target_user_id, msg.text or "[media]", direction="outgoing")
-                except Exception as e:
-                    await msg.reply_text(f"❌ Failed: {e}")
+        if msg.reply_to_message and msg.reply_to_message.forward_origin:
+            try:
+                origin = msg.reply_to_message.forward_origin
+                target_user_id = origin.sender_user.id
+                # Silently copy the message as-is — no "Reply from Support" prefix
+                await context.bot.copy_message(
+                    chat_id=target_user_id,
+                    from_chat_id=msg.chat_id,
+                    message_id=msg.message_id
+                )
+                save_message(target_user_id, msg.text or "[media]", direction="outgoing")
+                # No "Reply sent" confirmation — silent
+            except Exception as e:
+                await msg.reply_text(f"❌ Failed: {e}")
         return
 
     # --- USER SIDE: sending a message ---
@@ -66,26 +63,13 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     save_message(user.id, msg.text or "[media]", direction="incoming")
 
-    # Send message to admin with hashtag at the bottom
-    if msg.text:
-        # Text message — append hashtag at bottom
-        sent = await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"{msg.text}\n\n#id{user.id}"
-        )
-    else:
-        # Media message — use copy with hashtag as caption
-        existing_caption = msg.caption or ""
-        sent = await context.bot.copy_message(
-            chat_id=OWNER_ID,
-            from_chat_id=msg.chat_id,
-            message_id=msg.message_id,
-            caption=f"{existing_caption}\n\n#id{user.id}".strip()
-        )
-
-    # Save the mapping: admin message_id -> user_id
-    save_message_map(sent.message_id, user.id)
-
+    # Forward the message cleanly — no extra caption, just the message
+    await context.bot.forward_message(
+        chat_id=OWNER_ID,
+        from_chat_id=msg.chat_id,
+        message_id=msg.message_id
+    )
+    # No "message received" confirmation — silent, feels like DM
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -97,7 +81,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📨 Messages Received: `{total_messages}`",
         parse_mode="Markdown"
     )
-
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -125,7 +108,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-
 async def ban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
@@ -133,11 +115,7 @@ async def ban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /ban <user_id>")
         return
     ban_user(int(context.args[0]))
-    await update.message.reply_text(
-        f"🚫 User `{context.args[0]}` has been banned.",
-        parse_mode="Markdown"
-    )
-
+    await update.message.reply_text(f"🚫 User `{context.args[0]}` has been banned.", parse_mode="Markdown")
 
 async def unban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -146,7 +124,4 @@ async def unban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /unban <user_id>")
         return
     unban_user(int(context.args[0]))
-    await update.message.reply_text(
-        f"✅ User `{context.args[0]}` has been unbanned.",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"✅ User `{context.args[0]}` has been unbanned.", parse_mode="Markdown")
