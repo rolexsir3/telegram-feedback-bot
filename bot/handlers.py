@@ -12,7 +12,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(user)
     await update.message.reply_text(
         f"👋 Hello, {user.first_name}!\n\n"
-        "Send any message here and admin will get back to you shortly. 💬"
+        "Send me any message and the support team will get back to you shortly. 💬"
     )
 
 
@@ -45,14 +45,13 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             try:
                 origin = msg.reply_to_message.forward_origin
                 target_user_id = origin.sender_user.id
-                # Silently copy the message as-is — no "Reply from Support" prefix
+                # Copy message as-is — clean, no prefix
                 await context.bot.copy_message(
                     chat_id=target_user_id,
                     from_chat_id=msg.chat_id,
                     message_id=msg.message_id
                 )
                 save_message(target_user_id, msg.text or "[media]", direction="outgoing")
-                # No "Reply sent" confirmation — silent
             except Exception as e:
                 await msg.reply_text(f"❌ Failed: {e}")
         return
@@ -66,14 +65,20 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     save_message(user.id, msg.text or "[media]", direction="incoming")
 
-    # Forward the message cleanly — no extra caption, just the message
+    # Forward the message to admin (with notification)
     await context.bot.forward_message(
         chat_id=OWNER_ID,
         from_chat_id=msg.chat_id,
         message_id=msg.message_id
     )
 
-    # No "message received" confirmation — silent, feels like DM
+    # Send silent hashtag tag to admin only — for search mobility
+    username_tag = f"@{user.username}" if user.username else user.first_name
+    await context.bot.send_message(
+        chat_id=OWNER_ID,
+        text=f"#id{user.id}\n👤 {username_tag}",
+        disable_notification=True
+    )
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -122,7 +127,10 @@ async def ban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /ban <user_id>")
         return
     ban_user(int(context.args[0]))
-    await update.message.reply_text(f"🚫 User `{context.args[0]}` has been banned.", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"🚫 User `{context.args[0]}` has been banned.",
+        parse_mode="Markdown"
+    )
 
 
 async def unban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -132,4 +140,7 @@ async def unban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /unban <user_id>")
         return
     unban_user(int(context.args[0]))
-    await update.message.reply_text(f"✅ User `{context.args[0]}` has been unbanned.", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"✅ User `{context.args[0]}` has been unbanned.",
+        parse_mode="Markdown"
+    )
