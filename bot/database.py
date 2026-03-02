@@ -7,6 +7,7 @@ db = client[DB_NAME]
 
 users_col = db["users"]
 messages_col = db["messages"]
+message_map_col = db["message_map"]
 
 
 def save_user(user):
@@ -53,3 +54,16 @@ def unban_user(user_id):
 def is_banned(user_id):
     user = users_col.find_one({"user_id": user_id})
     return user.get("banned", False) if user else False
+
+
+# --- Message map: admin message_id -> user_id (for reply routing) ---
+def save_message_map(admin_message_id, user_id):
+    message_map_col.insert_one({
+        "admin_message_id": admin_message_id,
+        "user_id": user_id
+    })
+
+
+def get_user_from_message(admin_message_id):
+    doc = message_map_col.find_one({"admin_message_id": admin_message_id})
+    return doc["user_id"] if doc else None
