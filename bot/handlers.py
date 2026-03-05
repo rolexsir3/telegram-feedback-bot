@@ -36,6 +36,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
+async def _forward_album(context: ContextTypes.DEFAULT_TYPE):
+    """Job callback: forwards a buffered media group as a proper album."""
+    group_key = context.job.data
+    buf = context.bot_data.get("album_buffer", {})
+    group = buf.pop(group_key, None)
+    if not group:
+        return
+
+    forwarded_msgs = await context.bot.forward_messages(
+        chat_id=OWNER_ID,
+        from_chat_id=group["chat_id"],
+        message_ids=sorted(group["message_ids"])
+    )
+
+    # Map every forwarded message_id → user_id
+    for fwd in forwarded_msgs:
+        save_message_map(fwd.message_id, group["user_id"])
+
+
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     msg = update.message
@@ -78,7 +97,27 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     save_message(user.id, msg.text or "[media]", direction="incoming")
 
-    # Forward the original message — preserves the forward tag for all users
+    # --- Album (media group) handling ---
+    # Telegram sends each photo/video in an album as a separate message with the
+    # same media_group_id. We buffer them for 1 second, then forward all at once
+    # so the admin receives them as a proper album.
+    if msg.media_group_id:
+        buf = context.bot_data.setdefault("album_buffer", {})
+        group_key = f"{user.id}:{msg.media_group_id}"
+
+        if group_key not in buf:
+            buf[group_key] = {"user_id": user.id, "chat_id": msg.chat_id, "message_ids": []}
+
+        buf[group_key]["message_ids"].append(msg.message_id)
+
+        # Cancel any existing job for this group and reschedule — resets the 1s window
+        for job in context.job_queue.get_jobs_by_name(group_key):
+            job.schedule_removal()
+
+        context.job_queue.run_once(_forward_album, when=1.0, name=group_key, data=group_key)
+        return
+
+    # --- Single message ---
     forwarded = await context.bot.forward_message(
         chat_id=OWNER_ID,
         from_chat_id=msg.chat_id,
