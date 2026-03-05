@@ -26,8 +26,7 @@ def run_flask():
 def main():
     Thread(target=run_flask, daemon=True).start()
 
-    # job_queue=True is required for album buffering (media group delay jobs)
-    app = ApplicationBuilder().token(BOT_TOKEN).job_queue(True).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
