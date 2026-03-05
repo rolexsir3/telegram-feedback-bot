@@ -43,7 +43,24 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # --- OWNER SIDE: reply to a user ---
     if user.id == OWNER_ID:
         if msg.reply_to_message:
+            target_user_id = None
+
+            # 1st: try MongoDB message map (new messages)
             target_user_id = get_user_from_message(msg.reply_to_message.message_id)
+
+            # 2nd: fallback to forward_origin (old forwarded messages)
+            if not target_user_id and msg.reply_to_message.forward_origin:
+                origin = msg.reply_to_message.forward_origin
+                origin_type = type(origin).__name__
+                if origin_type == "MessageOriginUser":
+                    target_user_id = origin.sender_user.id
+                else:
+                    await msg.reply_text(
+                        "⚠️ This user hides their profile.\n"
+                        "Use their `#id` tag from a newer message to find and reply to them."
+                    )
+                    return
+
             if target_user_id:
                 try:
                     await context.bot.copy_message(
@@ -55,7 +72,7 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except Exception as e:
                     await msg.reply_text(f"❌ Failed: {e}")
             else:
-                await msg.reply_text("⚠️ Could not find the user for this message.")
+                await msg.reply_text("⚠️ Could not find the user. Try replying to a newer message.")
         return
 
     # --- USER SIDE: sending a message ---
@@ -142,10 +159,3 @@ async def unban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
     if not context.args:
-        await update.message.reply_text("Usage: /unban <user_id>")
-        return
-    unban_user(int(context.args[0]))
-    await update.message.reply_text(
-        f"✅ User `{context.args[0]}` has been unbanned.",
-        parse_mode="Markdown"
-    )
