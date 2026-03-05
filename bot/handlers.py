@@ -159,3 +159,10 @@ async def unban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
     if not context.args:
+        await update.message.reply_text("Usage: /unban <user_id>")
+        return
+    unban_user(int(context.args[0]))
+    await update.message.reply_text(
+        f"✅ User `{context.args[0]}` has been unbanned.",
+        parse_mode="Markdown"
+    )
