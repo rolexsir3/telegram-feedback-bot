@@ -48,19 +48,11 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             # 1. Check our DB map first — covers ALL users including hidden profiles
             target_user_id = get_user_id_by_message(replied_id)
 
-            # 2. Fallback: read forward_origin (for messages before DB map existed)
+            # 2. Fallback: read forward_origin (for messages predating the DB map)
             if target_user_id is None:
                 origin = getattr(msg.reply_to_message, "forward_origin", None)
-                if origin:
-                    if type(origin).__name__ == "MessageOriginHiddenUser":
-                        await msg.reply_text(
-                            "⚠️ This user hides their profile.\n"
-                            "Please reply to the 👤 service message *below* the forwarded one.",
-                            parse_mode="Markdown"
-                        )
-                        return
-                    if hasattr(origin, "sender_user") and origin.sender_user:
-                        target_user_id = origin.sender_user.id
+                if origin and hasattr(origin, "sender_user") and origin.sender_user:
+                    target_user_id = origin.sender_user.id
 
             if target_user_id is None:
                 await msg.reply_text("⚠️ Could not identify the target user.")
@@ -86,31 +78,16 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     save_message(user.id, msg.text or "[media]", direction="incoming")
 
-    # Step 1: Forward the original message — preserves the forward tag
+    # Forward the original message — preserves the forward tag for all users
     forwarded = await context.bot.forward_message(
         chat_id=OWNER_ID,
         from_chat_id=msg.chat_id,
         message_id=msg.message_id
     )
 
-    # Step 2: Send a clean service message right below it
-    username_part = f"@{user.username}" if user.username else "no username"
-    hidden = type(getattr(forwarded, "forward_origin", None)).__name__ == "MessageOriginHiddenUser"
-    service_note = "\n👆 *User hides their profile — reply to THIS message, not the one above.*" if hidden else ""
-
-    service_msg = await context.bot.send_message(
-        chat_id=OWNER_ID,
-        text=(
-            f"👤 {user.first_name} ({username_part})"
-            f"{service_note}"
-        ),
-        parse_mode="Markdown",
-        disable_notification=True
-    )
-
-    # Step 3: Map BOTH message IDs → user_id so admin can reply to either
+    # Map forwarded message_id → user_id so admin can reply to anyone,
+    # including users with hidden profiles
     save_message_map(forwarded.message_id, user.id)
-    save_message_map(service_msg.message_id, user.id)
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
