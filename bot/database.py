@@ -7,6 +7,7 @@ db = client[DB_NAME]
 
 users_col = db["users"]
 messages_col = db["messages"]
+message_map_col = db["message_map"]  # maps admin message_id → user_id
 
 
 def save_user(user):
@@ -40,6 +41,21 @@ def get_stats():
     total_users = users_col.count_documents({})
     total_messages = messages_col.count_documents({"direction": "incoming"})
     return total_users, total_messages
+
+
+def save_message_map(admin_message_id, user_id):
+    """Map the admin-side message_id back to the original user_id."""
+    message_map_col.update_one(
+        {"admin_message_id": admin_message_id},
+        {"$set": {"admin_message_id": admin_message_id, "user_id": user_id}},
+        upsert=True
+    )
+
+
+def get_user_id_by_message(admin_message_id):
+    """Return the user_id for a given admin-side message_id, or None."""
+    doc = message_map_col.find_one({"admin_message_id": admin_message_id})
+    return doc["user_id"] if doc else None
 
 
 def ban_user(user_id):
