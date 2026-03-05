@@ -3,8 +3,7 @@ from telegram.ext import ContextTypes
 from config import OWNER_ID
 from bot.database import (
     save_user, save_message, get_all_users,
-    get_stats, ban_user, unban_user, is_banned,
-    save_message_map, get_user_from_message
+    get_stats, ban_user, unban_user, is_banned
 )
 
 
@@ -25,7 +24,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/broadcast — Reply to a message with this to broadcast\n"
             "/ban `<user_id>` — Ban a user\n"
             "/unban `<user_id>` — Unban a user\n\n"
-            "💬 Just *reply* to any message to respond to that user."
+            "💬 Just *reply* to any forwarded message to respond to that user."
         )
     else:
         text = (
@@ -42,37 +41,21 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # --- OWNER SIDE: reply to a user ---
     if user.id == OWNER_ID:
-        if msg.reply_to_message:
-            target_user_id = None
-
-            # 1st: try MongoDB message map (new messages)
-            target_user_id = get_user_from_message(msg.reply_to_message.message_id)
-
-            # 2nd: fallback to forward_origin (old forwarded messages)
-            if not target_user_id and msg.reply_to_message.forward_origin:
-                origin = msg.reply_to_message.forward_origin
-                origin_type = type(origin).__name__
-                if origin_type == "MessageOriginUser":
-                    target_user_id = origin.sender_user.id
-                else:
-                    await msg.reply_text(
-                        "⚠️ This user hides their profile.\n"
-                        "Use their `#id` tag from a newer message to find and reply to them."
-                    )
-                    return
-
-            if target_user_id:
-                try:
-                    await context.bot.copy_message(
-                        chat_id=target_user_id,
-                        from_chat_id=msg.chat_id,
-                        message_id=msg.message_id
-                    )
-                    save_message(target_user_id, msg.text or "[media]", direction="outgoing")
-                except Exception as e:
-                    await msg.reply_text(f"❌ Failed: {e}")
-            else:
-                await msg.reply_text("⚠️ Could not find the user. Try replying to a newer message.")
+        if msg.reply_to_message and msg.reply_to_message.forward_origin:
+            origin = msg.reply_to_message.forward_origin
+            if type(origin).__name__ == "MessageOriginHiddenUser":
+                await msg.reply_text("⚠️ This user hides their profile, cannot reply.")
+                return
+            try:
+                target_user_id = origin.sender_user.id
+                await context.bot.copy_message(
+                    chat_id=target_user_id,
+                    from_chat_id=msg.chat_id,
+                    message_id=msg.message_id
+                )
+                save_message(target_user_id, msg.text or "[media]", direction="outgoing")
+            except Exception as e:
+                await msg.reply_text(f"❌ Failed: {e}")
         return
 
     # --- USER SIDE: sending a message ---
@@ -84,23 +67,19 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     save_message(user.id, msg.text or "[media]", direction="incoming")
 
-    # Send to admin with hashtag at the bottom
-    if msg.text:
-        sent = await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"{msg.text}\n\n#id{user.id}"
-        )
-    else:
-        existing_caption = msg.caption or ""
-        sent = await context.bot.copy_message(
-            chat_id=OWNER_ID,
-            from_chat_id=msg.chat_id,
-            message_id=msg.message_id,
-            caption=f"{existing_caption}\n\n#id{user.id}".strip()
-        )
+    # Forward message to admin (keeps forward tag)
+    await context.bot.forward_message(
+        chat_id=OWNER_ID,
+        from_chat_id=msg.chat_id,
+        message_id=msg.message_id
+    )
 
-    # Save message_id -> user_id mapping for reply routing
-    save_message_map(sent.message_id, user.id)
+    # Send silent hashtag for search — admin only
+    await context.bot.send_message(
+        chat_id=OWNER_ID,
+        text=f"#id{user.id}",
+        disable_notification=True
+    )
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
