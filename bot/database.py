@@ -9,6 +9,7 @@ users_col = db["users"]
 messages_col = db["messages"]
 message_map_col = db["message_map"]
 
+
 def save_user(user):
     users_col.update_one(
         {"user_id": user.id},
@@ -22,8 +23,10 @@ def save_user(user):
         upsert=True
     )
 
+
 def get_all_users():
     return list(users_col.find({}, {"_id": 0, "user_id": 1}))
+
 
 def save_message(from_user_id, text, direction="incoming"):
     messages_col.insert_one({
@@ -33,27 +36,32 @@ def save_message(from_user_id, text, direction="incoming"):
         "timestamp": datetime.utcnow()
     })
 
+
 def get_stats():
     total_users = users_col.count_documents({})
     total_messages = messages_col.count_documents({"direction": "incoming"})
     return total_users, total_messages
 
+
 def ban_user(user_id):
     users_col.update_one({"user_id": user_id}, {"$set": {"banned": True}})
 
+
 def unban_user(user_id):
     users_col.update_one({"user_id": user_id}, {"$set": {"banned": False}})
+
 
 def is_banned(user_id):
     user = users_col.find_one({"user_id": user_id})
     return user.get("banned", False) if user else False
 
-# --- Message map: admin message_id -> user_id ---
+
 def save_message_map(admin_message_id, user_id):
     message_map_col.insert_one({
         "admin_message_id": admin_message_id,
         "user_id": user_id
     })
+
 
 def get_user_from_message(admin_message_id):
     doc = message_map_col.find_one({"admin_message_id": admin_message_id})
